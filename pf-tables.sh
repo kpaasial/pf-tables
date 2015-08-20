@@ -5,11 +5,11 @@
 # TODO: do not hardcode paths to utilities. Detect them at run time.
 # TODO: allow a mode that only downloads the files into the temporary directory
 # for testing.
-# TODO: Make it possible to run only the download+store modes or load mode. 
 
 : ${PFTABLES_CONFIG:="/opt/etc/pf-tables.conf"}
 : ${PFTABLES_DBDIR:="/var/db/pf-tables"}
-: ${COMMAND:="fetch"}
+
+COMMAND="fetch"
 
 
 
@@ -66,8 +66,9 @@ download_tablefile() {
     URL=$1
     TMPFILE=$2
 
-    ${FTP} -o - "${URL}" | ${SED} -e 's/[;#].*$//g' -e '/^\s*$/d' \
-        > "${TMPFILE}" 
+    ${FTP} -v -o - "${URL}" > "${TMPFILE}.orig" || exit 1
+    ${SED} -e 's/[;#].*$//g' -e '/^\s*$/d' "${TMPFILE}.orig" > "${TMPFILE}" \
+        || exit 1 
 
 }
 
