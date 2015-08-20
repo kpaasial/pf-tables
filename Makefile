@@ -2,7 +2,7 @@
 PREFIX=/opt
 
 
-SCRIPTS= pf-tables.sh load-pf-tables.sh update-pf-tables.sh
+SCRIPTS= pf-tables.sh
 ETCFILES= pf-tables.conf
 
 all:
