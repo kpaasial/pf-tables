@@ -3,10 +3,11 @@
 # Script for updating a set of IP/CIDR tables.
 
 # TODO: do not hardcode paths to utilities. Detect them at run time.
-# TODO: allow a mode that only downloads the files into the temporary directory
-# for testing.
 
-: ${PFTABLES_CONFIG:="/opt/etc/pf-tables.conf"}
+PREFIX=@@PREFIX@@
+
+
+: ${PFTABLES_CONFIG:="/${PREFIX}/etc/pf-tables.conf"}
 : ${PFTABLES_DBDIR:="/var/db/pf-tables"}
 
 COMMAND="fetch"
