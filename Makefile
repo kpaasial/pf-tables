@@ -7,7 +7,7 @@ PREFIX?=/usr/local
 
 
 SCRIPTS= pf-tables.sh
-ETCFILES= pf-tables.conf
+ETCFILES= pf-tables.conf.sample
 
 all: ${SCRIPTS}
 
