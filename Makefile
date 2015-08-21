@@ -14,7 +14,7 @@ all: ${SCRIPTS}
 install: install-scripts install-etc
 
 install-scripts:	${SCRIPTS}
-	$(INSTALL) -m 755 $> ${DESTDIR}/${PREFIX}/sbin 
+	${INSTALL} -m 755 $> ${DESTDIR}/${PREFIX}/sbin 
 
 install-etc:	${ETCFILES}
 	${INSTALL} -m 640 $> ${DESTDIR}/${PREFIX}/etc
