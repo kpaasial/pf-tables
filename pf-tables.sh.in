@@ -13,7 +13,7 @@ PREFIX=@@PREFIX@@
 COMMAND="fetch"
 
 
-
+CAT=/bin/cat
 CP=/bin/cp
 FTP=/usr/bin/ftp
 MKTEMP=/usr/bin/mktemp
@@ -33,9 +33,6 @@ case "${COMMAND}" in
     "load" ) MODES="load";;
     "all" ) MODES="download store load";;
 esac
-
-
-
 
 
 if [ ! -r "${PFTABLES_CONFIG}" ]; then
@@ -111,23 +108,23 @@ load_tablefile() {
 # TODO: The configuration file could be validated more strictly here.
 # Now there is only a test that it has two fields per line.
 
-# TODO: The default mode of operation should be just download+store and
-# the load mode being optional.
 
-# TODO: This whole loop could be in a function that gets called with modes
-# parameter set as seen fit.
+# Read the config file.
+CONFIG=$($CAT "${PFTABLES_CONFIG}")
+
+
 
 for mode in $MODES
 do
+    # Create the temporary directory if it is needed.
     if [ "${mode}" == "download" ]; then
-        # Create a unique temporary directory.
         TEMPLATE="XXXXXXXXXX"
         SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE})
         trap finish EXIT
     fi
 
-    while read line
-    do
+    printf %s "${CONFIG}" | while IFS= read -r line; do
+
         line="${line%%#*}"
 
         if [ -z "${line}" ]; then
@@ -158,7 +155,7 @@ do
                 load_tablefile "${TABLEFILEPATH}" "${TABLE}"
                 ;;
         esac
-    done < ${PFTABLES_CONFIG}
+    done
 done
 
 exit 0
