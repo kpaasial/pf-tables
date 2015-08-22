@@ -22,4 +22,4 @@ install-etc:	${ETCFILES}
 pf-tables.sh: pf-tables.sh.in
 
 clean:
-	rm ${SCRIPTS}
+	-rm ${SCRIPTS}
