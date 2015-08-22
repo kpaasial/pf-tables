@@ -22,7 +22,7 @@ RM=/bin/rm
 SED=/usr/bin/sed
 UNAME=/usr/bin/uname
 
-
+COMMAND=fetch
 DOWNLOAD=yes
 STORE=yes
 LOAD=
@@ -42,15 +42,6 @@ case $OSTYPE in
         ;;
 esac  
 
-# Need root privileges to store the tables and to loaded them to PF.
-# TODO: Testing the downloads should not need root privileges.
-if [ $(id -u) -ne 0 ]; then
-    echo "$0: ERROR: need root privileges."
-    exit 1 
-fi
-
-
-COMMAND="fetch"
 
 if [ $# -eq 1 ]; then 
     COMMAND=$1
@@ -111,9 +102,6 @@ load_tablefile() {
         return 1
     fi
     
-    # TODO: Test that PF is enabled.
-    # TODO: Test that $TABLE exists in the active ruleset.
-
     if ! ${PFCTL} -T show -t "${TABLE}" >/dev/null 2>&1 ; then
         echo "ERROR: PF table ${TABLE} not found in the active ruleset".
         return 1
@@ -189,10 +177,7 @@ if [ "${LOAD}" = "yes" ]; then
             echo "ERROR: Something went wrong loading table ${TABLE} to PF."
             exit 1
         fi 
-            
-
     done
-
 fi
 
 exit 0
