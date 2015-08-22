@@ -28,6 +28,11 @@ STORE=yes
 LOAD=
 
 
+usage() {
+    echo "Usage: $0 [-d database_directory] [-f config_file ] [command]"
+    exit 1
+}
+
 # TODO: Test on NetBSD and DragonFlyBSD
 OSTYPE=$($UNAME)
 
@@ -42,6 +47,17 @@ case $OSTYPE in
         ;;
 esac  
 
+while getopts "d:f:h" o
+do
+    case "$o" in 
+    d)  PFTABLES_DBDIR=$OPTARG;;  
+    f)  PFTABLES_CONFIG=$OPTARG;;
+    h)  usage;;
+    *)  usage;;
+    esac
+done
+
+shift $((OPTIND-1))
 
 if [ $# -eq 1 ]; then 
     COMMAND=$1
@@ -69,8 +85,7 @@ fi
 finish() {
     # Make sure we are deleting a temporary directory created by this script
     # and not something else. This script will be run as root, better safe than
-    # sorry. The trick here is to test if the pattern on the right side of ##
-    # "eats" everything in $SCRATCH. Zero length result means a complete match. 
+    # sorry.
     if test -z "${SCRATCH##/tmp/pftables-??????????}" ; then
          ${RM} -rf "${SCRATCH}"
     else
@@ -98,7 +113,7 @@ load_tablefile() {
     TABLE=$2
     
     if [ ! -r "${TABLEFILEPATH}" ]; then
-        echo "ERROR: table file ${TABLEFILEPATH} not readable."
+        echo "ERROR: Table file ${TABLEFILEPATH} is not readable."
         return 1
     fi
     
@@ -119,6 +134,7 @@ if [ "${DOWNLOAD}" = "yes" ]; then
     SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE})
     trap finish EXIT
 
+    # Counter to keep track of downloaded tables.
     downloaded_tables=0
 
     while read line
@@ -166,18 +182,36 @@ fi
 
 if [ "${LOAD}" = "yes" ]; then
 
-    # The name of the table file without the .txt ending
-    # is the name of PF table where the file is to be loaded.
-    # We do not need to read the config file the second time.
-    for TABLEFILEPATH in ${PFTABLES_DBDIR}/*.txt; do
-        TABLEFILEBASE=$(basename $TABLEFILEPATH)
-        TABLE="${TABLEFILEBASE%.txt}"
+    # Read the config file the second time. Not the most elegant
+    # programming but we need to know which tables are to be loaded.
+    while read line
+    do  
+        line="${line%%#*}"
 
-        if ! load_tablefile "${TABLEFILEPATH}" "${TABLE}"; then
-            echo "ERROR: Something went wrong loading table ${TABLE} to PF."
+        if [ -z "${line}" ]; then
+            continue
+        fi
+
+        set -- $line
+
+        URL=$1
+        TABLE=$2
+
+
+        if [ -z "${URL}" ] || [ -z "${TABLE}" ]; then
+            echo "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
+            exit 1
+        fi
+
+        TABLEFILEPATH="${PFTABLES_DBDIR}/${TABLE}.txt"
+
+        if ! load_tablefile "${TABLEFILEPATH}" "${TABLE}" ; then
+            echo "ERROR: Something went wrong loading ${TABLE} to PF."
             exit 1
         fi 
-    done
+
+            
+    done <"${PFTABLES_CONFIG}"
 fi
 
 exit 0
