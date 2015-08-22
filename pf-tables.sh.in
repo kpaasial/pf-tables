@@ -50,7 +50,7 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 
-
+COMMAND="fetch"
 
 if [ $# -eq 1 ]; then 
     COMMAND=$1
@@ -96,24 +96,10 @@ download_tablefile() {
     ${FTP} -v -o - "${URL}" > "${TMPFILE}.orig" || return 1
     ${SED} -e 's/[;#].*$//g' -e '/^\s*$/d' "${TMPFILE}.orig" > "${TMPFILE}" \
         || return 1
-#    ${RM} "${TMPFILE}.orig" || return 1
 
 }
 
 
-# Store TMPFILE into TABLEFILEPATH. 
-store_tablefile() {
-    TMPFILE=$1
-    TABLEFILEPATH=$2
-
-    if [ ! -r "${TMPFILE}" ]; then
-        echo "ERROR: Temporary file ${TMPFILE} is not readable."
-        return 1
-    fi
-
-    ${CP} "${TMPFILE}" "${TABLEFILEPATH}" || return 1
-
-}
 
 # Load contents of TABLEFILEPATH into PF table TABLE.
 load_tablefile() {
@@ -128,6 +114,10 @@ load_tablefile() {
     # TODO: Test that PF is enabled.
     # TODO: Test that $TABLE exists in the active ruleset.
 
+    if ! ${PFCTL} -T show -t "${TABLE}" >/dev/null 2>&1 ; then
+        echo "ERROR: PF table ${TABLE} not found in the active ruleset".
+        return 1
+    fi
  
     ${PFCTL} -T flush -t "${TABLE}" || return 1
     ${PFCTL} -T add -t "${TABLE}" -f "${TABLEFILEPATH}" || return 1
@@ -140,6 +130,8 @@ if [ "${DOWNLOAD}" = "yes" ]; then
     TEMPLATE="XXXXXXXXXX"
     SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE})
     trap finish EXIT
+
+    downloaded_tables=0
 
     while read line
     do  
@@ -154,7 +146,6 @@ if [ "${DOWNLOAD}" = "yes" ]; then
         URL=$1
         TABLE=$2
 
-        echo "URL: $URL, TABLE: $TABLE"
 
         if [ -z "${URL}" ] || [ -z "${TABLE}" ]; then
             echo "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
@@ -167,14 +158,20 @@ if [ "${DOWNLOAD}" = "yes" ]; then
             echo "ERROR: Something went wrong downloading ${URL}."
             exit 1
         fi 
+
+        downloaded_tables=$(($downloaded_tables + 1 ))
             
     done <"${PFTABLES_CONFIG}"
 
     # The store pass can not be done unless the download pass has
     # finished successfully.
-    if [ "${STORE}" = "yes" ]; then
-        # Simpy copy everything from ${SCRATCH} to ${PFTABLES_DBDIR}
-        ${CP} ${SCRATCH}/* "${PFTABLES_DBDIR}" || exit 1
+    
+    if [ "${STORE}" = "yes" ] && [ $downloaded_tables -gt 0 ]; then
+        # Copy processed tablefiles (*.txt) from ${SCRATCH} to 
+        # ${PFTABLES_DBDIR}
+        for TMPFILE in ${SCRATCH}/*.txt; do
+            ${CP} "${TMPFILE}" "${PFTABLES_DBDIR}"
+        done    
 
     fi
 fi
