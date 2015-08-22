@@ -3,14 +3,14 @@
 # Script for updating a set of IP/CIDR tables.
 
 # TODO: do not hardcode paths to utilities. Detect them at run time.
-
+# CAVEATS: This will probably work on FreeBSD and OpenBSD without
+# modifications. No guarantees of working on other BSD OSes.
 PREFIX=@@PREFIX@@
 
 
 : ${PFTABLES_CONFIG:="/${PREFIX}/etc/pf-tables.conf"}
 : ${PFTABLES_DBDIR:="/var/db/pf-tables"}
 
-COMMAND="fetch"
 
 
 CAT=/bin/cat
@@ -20,8 +20,37 @@ MKTEMP=/usr/bin/mktemp
 PFCTL=/sbin/pfctl
 RM=/bin/rm
 SED=/usr/bin/sed
+UNAME=/usr/bin/uname
 
-MODES="download store"
+
+DOWNLOAD=yes
+STORE=yes
+LOAD=
+
+
+# TODO: Test on NetBSD and DragonFlyBSD
+OSTYPE=$($UNAME)
+
+case $OSTYPE in 
+    FreeBSD)
+        ;;
+    OpenBSD)
+        ;;
+    *)
+        echo "Unsupported operating system"
+        exit 1
+        ;;
+esac  
+
+# Need root privileges to store the tables and to loaded them to PF.
+# TODO: Testing the downloads should not need root privileges.
+if [ $(id -u) -ne 0 ]; then
+    echo "$0: ERROR: need root privileges."
+    exit 1 
+fi
+
+
+
 
 if [ $# -eq 1 ]; then 
     COMMAND=$1
@@ -29,9 +58,9 @@ fi
 
 
 case "${COMMAND}" in
-    "fetch" ) MODES="download store";;
-    "load" ) MODES="load";;
-    "all" ) MODES="download store load";;
+    "fetch" ) DOWNLOAD=yes; STORE=yes; LOAD=;;
+    "load" ) DOWNLOAD=; STORE=; LOAD=yes;;
+    "all" ) DOWNLOAD=yes; STORE=yes; LOAD=yes;;
 esac
 
 
@@ -64,9 +93,10 @@ download_tablefile() {
     URL=$1
     TMPFILE=$2
 
-    ${FTP} -v -o - "${URL}" > "${TMPFILE}.orig" || exit 1
+    ${FTP} -v -o - "${URL}" > "${TMPFILE}.orig" || return 1
     ${SED} -e 's/[;#].*$//g' -e '/^\s*$/d' "${TMPFILE}.orig" > "${TMPFILE}" \
-        || exit 1 
+        || return 1
+#    ${RM} "${TMPFILE}.orig" || return 1
 
 }
 
@@ -78,10 +108,10 @@ store_tablefile() {
 
     if [ ! -r "${TMPFILE}" ]; then
         echo "ERROR: Temporary file ${TMPFILE} is not readable."
-        exit 1
+        return 1
     fi
 
-    ${CP} "${TMPFILE}" "${TABLEFILEPATH}" || exit 1
+    ${CP} "${TMPFILE}" "${TABLEFILEPATH}" || return 1
 
 }
 
@@ -92,39 +122,27 @@ load_tablefile() {
     
     if [ ! -r "${TABLEFILEPATH}" ]; then
         echo "ERROR: table file ${TABLEFILEPATH} not readable."
-        exit 1
+        return 1
     fi
+    
+    # TODO: Test that PF is enabled.
+    # TODO: Test that $TABLE exists in the active ruleset.
+
  
-    ${PFCTL} -T flush -t "${TABLE}" || exit 1
-    ${PFCTL} -T add -t "${TABLE}" -f "${TABLEFILEPATH}" || exit 1
+    ${PFCTL} -T flush -t "${TABLE}" || return 1
+    ${PFCTL} -T add -t "${TABLE}" -f "${TABLEFILEPATH}" || return 1
 }
 
-# Make multiple passes in different modes over the config file.
-# The download mode downloads the files into the $SCRATCH directory and removes
-# comments. Any error in the downloads aborts the script and cleans up $SCRATCH.
-# The store pass stores the downloaded files at $PFTABLES_DBDIR.
-# The load pass loads the stored table files into PF.
-
-# TODO: The configuration file could be validated more strictly here.
-# Now there is only a test that it has two fields per line.
 
 
-# Read the config file.
-CONFIG=$($CAT "${PFTABLES_CONFIG}")
+if [ "${DOWNLOAD}" = "yes" ]; then
+    # Create the temporary directory
+    TEMPLATE="XXXXXXXXXX"
+    SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE})
+    trap finish EXIT
 
-
-
-for mode in $MODES
-do
-    # Create the temporary directory if it is needed.
-    if [ "${mode}" == "download" ]; then
-        TEMPLATE="XXXXXXXXXX"
-        SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE})
-        trap finish EXIT
-    fi
-
-    printf %s "${CONFIG}" | while IFS= read -r line; do
-
+    while read line
+    do  
         line="${line%%#*}"
 
         if [ -z "${line}" ]; then
@@ -136,26 +154,48 @@ do
         URL=$1
         TABLE=$2
 
+        echo "URL: $URL, TABLE: $TABLE"
+
         if [ -z "${URL}" ] || [ -z "${TABLE}" ]; then
             echo "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
             exit 1
         fi
 
-        TMPFILE="${SCRATCH}/${TABLE}"
-        TABLEFILEPATH="${PFTABLES_DBDIR}/${TABLE}.txt"
+        TMPFILE="${SCRATCH}/${TABLE}.txt"
 
-        case "${mode}" in
-            "download" )
-                download_tablefile "${URL}" "${TMPFILE}"
-                ;;
-            "store" )
-                store_tablefile "${TMPFILE}" "${TABLEFILEPATH}"
-                ;;
-            "load" )
-                load_tablefile "${TABLEFILEPATH}" "${TABLE}"
-                ;;
-        esac
+        if ! download_tablefile "${URL}" "${TMPFILE}" ; then
+            echo "ERROR: Something went wrong downloading ${URL}."
+            exit 1
+        fi 
+            
+    done <"${PFTABLES_CONFIG}"
+
+    # The store pass can not be done unless the download pass has
+    # finished successfully.
+    if [ "${STORE}" = "yes" ]; then
+        # Simpy copy everything from ${SCRATCH} to ${PFTABLES_DBDIR}
+        ${CP} ${SCRATCH}/* "${PFTABLES_DBDIR}" || exit 1
+
+    fi
+fi
+
+if [ "${LOAD}" = "yes" ]; then
+
+    # The name of the table file without the .txt ending
+    # is the name of PF table where the file is to be loaded.
+    # We do not need to read the config file the second time.
+    for TABLEFILEPATH in ${PFTABLES_DBDIR}/*.txt; do
+        TABLEFILEBASE=$(basename $TABLEFILEPATH)
+        TABLE="${TABLEFILEBASE%.txt}"
+
+        if ! load_tablefile "${TABLEFILEPATH}" "${TABLE}"; then
+            echo "ERROR: Something went wrong loading table ${TABLE} to PF."
+            exit 1
+        fi 
+            
+
     done
-done
+
+fi
 
 exit 0
