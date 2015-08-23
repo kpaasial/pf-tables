@@ -88,14 +88,14 @@ finish() {
     # sorry.
     if test -n "${SCRATCH}" \
         && test -z "${SCRATCH##/tmp/pftables-??????????}" ; then
-         ${RM} -rf "${SCRATCH}"
+         ${RM} -r "${SCRATCH}"
     else
         echo "WARNING: Unexpected value for SCRATCH: ${SCRATCH}"
     fi     
 }
 
-
 # Download a tablefile from URL and place its contents in TMPFILE.
+# Remove # and ; comments.
 download_tablefile() {
     URL=$1
     TMPFILE=$2
@@ -105,8 +105,6 @@ download_tablefile() {
         || return 1
 
 }
-
-
 
 # Load contents of TABLEFILEPATH into PF table TABLE.
 load_tablefile() {
@@ -126,7 +124,6 @@ load_tablefile() {
     ${PFCTL} -T flush -t "${TABLE}" || return 1
     ${PFCTL} -T add -t "${TABLE}" -f "${TABLEFILEPATH}" || return 1
 }
-
 
 
 if test "${DOWNLOAD}" = "yes"; then
