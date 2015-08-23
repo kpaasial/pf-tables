@@ -1,8 +1,8 @@
 #!/bin/sh 
 
-# Script for updating a set of IP/CIDR tables.
+# Script for downloading a set of IP/CIDR tables and loading them
+# to pf(4).
 
-# TODO: do not hardcode paths to utilities. Detect them at run time.
 # CAVEATS: This will probably work on FreeBSD and OpenBSD without
 # modifications. No guarantees of working on other BSD OSes.
 PREFIX=@@PREFIX@@
@@ -10,7 +10,6 @@ PREFIX=@@PREFIX@@
 
 : ${PFTABLES_CONFIG:="/${PREFIX}/etc/pf-tables.conf"}
 : ${PFTABLES_DBDIR:="/var/db/pf-tables"}
-
 
 
 CAT=/bin/cat
@@ -23,6 +22,7 @@ SED=/usr/bin/sed
 UNAME=/usr/bin/uname
 
 COMMAND=fetch
+
 DOWNLOAD=yes
 STORE=yes
 LOAD=
@@ -59,7 +59,7 @@ done
 
 shift $((OPTIND-1))
 
-if [ $# -eq 1 ]; then 
+if [ $# -gt 1 ]; then 
     COMMAND=$1
 fi
 
@@ -71,13 +71,13 @@ case "${COMMAND}" in
 esac
 
 
-if [ ! -r "${PFTABLES_CONFIG}" ]; then
-    echo "ERROR: config file ${PFTABLES_CONFIG} is not readable."
+if test ! -r "${PFTABLES_CONFIG}"; then
+    echo "ERROR: Configuration file ${PFTABLES_CONFIG} is not readable."
     exit 1
 fi
 
-if [ ! -d "${PFTABLES_DBDIR}" ]; then
-    echo "ERROR: database directory ${PFTABLES_DBDIR} does not exist."
+if test ! -d "${PFTABLES_DBDIR}"; then
+    echo "ERROR: Database directory ${PFTABLES_DBDIR} does not exist."
     exit 1
 fi
 
@@ -86,10 +86,11 @@ finish() {
     # Make sure we are deleting a temporary directory created by this script
     # and not something else. This script will be run as root, better safe than
     # sorry.
-    if test -z "${SCRATCH##/tmp/pftables-??????????}" ; then
+    if test -n "${SCRATCH}" \
+        && test -z "${SCRATCH##/tmp/pftables-??????????}" ; then
          ${RM} -rf "${SCRATCH}"
     else
-        echo "Unexpected value for SCRATCH: ${SCRATCH}"
+        echo "WARNING: Unexpected value for SCRATCH: ${SCRATCH}"
     fi     
 }
 
@@ -112,7 +113,7 @@ load_tablefile() {
     TABLEFILEPATH=$1
     TABLE=$2
     
-    if [ ! -r "${TABLEFILEPATH}" ]; then
+    if test ! -r "${TABLEFILEPATH}"; then
         echo "ERROR: Table file ${TABLEFILEPATH} is not readable."
         return 1
     fi
@@ -128,7 +129,7 @@ load_tablefile() {
 
 
 
-if [ "${DOWNLOAD}" = "yes" ]; then
+if test "${DOWNLOAD}" = "yes"; then
     # Create the temporary directory
     TEMPLATE="XXXXXXXXXX"
     SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE})
@@ -141,7 +142,7 @@ if [ "${DOWNLOAD}" = "yes" ]; then
     do  
         line="${line%%#*}"
 
-        if [ -z "${line}" ]; then
+        if test -z "${line}"; then
             continue
         fi
 
@@ -151,8 +152,8 @@ if [ "${DOWNLOAD}" = "yes" ]; then
         TABLE=$2
 
 
-        if [ -z "${URL}" ] || [ -z "${TABLE}" ]; then
-            echo "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
+        if test -z "${URL}" || test -z "${TABLE}"; then
+            echo "ERROR: Malformed line ${line} in config file ${PFTABLES_CONFIG}"
             exit 1
         fi
 
@@ -170,25 +171,21 @@ if [ "${DOWNLOAD}" = "yes" ]; then
     # The store pass can not be done unless the download pass has
     # finished successfully.
     
-    if [ "${STORE}" = "yes" ] && [ $downloaded_tables -gt 0 ]; then
+    if test "${STORE}" = "yes" && test $downloaded_tables -gt 0; then
         # Copy processed tablefiles (*.txt) from ${SCRATCH} to 
         # ${PFTABLES_DBDIR}
-        for TMPFILE in ${SCRATCH}/*.txt; do
-            ${CP} "${TMPFILE}" "${PFTABLES_DBDIR}"
-        done    
-
+        ${CP} ${SCRATCH}/*.txt "${PFTABLES_DBDIR}"
     fi
 fi
 
-if [ "${LOAD}" = "yes" ]; then
-
+if test "${LOAD}" = "yes"; then
     # Read the config file the second time. Not the most elegant
     # programming but we need to know which tables are to be loaded.
     while read line
     do  
         line="${line%%#*}"
 
-        if [ -z "${line}" ]; then
+        if test -z "${line}"; then
             continue
         fi
 
@@ -197,8 +194,7 @@ if [ "${LOAD}" = "yes" ]; then
         URL=$1
         TABLE=$2
 
-
-        if [ -z "${URL}" ] || [ -z "${TABLE}" ]; then
+        if test -z "${URL}" || test -z "${TABLE}"; then
             echo "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
             exit 1
         fi
@@ -210,7 +206,6 @@ if [ "${LOAD}" = "yes" ]; then
             exit 1
         fi 
 
-            
     done <"${PFTABLES_CONFIG}"
 fi
 
