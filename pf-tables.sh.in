@@ -29,7 +29,7 @@ LOAD=
 
 
 usage() {
-    echo "Usage: $0 [-d database_directory] [-f config_file ] [command]"
+    echo "Usage: $0 [-d database_directory] [-f config_file ] [fetch|load|all]"
     exit 1
 }
 
