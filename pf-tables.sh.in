@@ -59,7 +59,7 @@ done
 
 shift $((OPTIND-1))
 
-if [ $# -gt 1 ]; then 
+if [ $# -gt 0 ]; then 
     COMMAND=$1
 fi
 
