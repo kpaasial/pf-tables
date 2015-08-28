@@ -4,10 +4,10 @@
 # to pf(4).
 
 # CAVEATS: This will probably work on FreeBSD and OpenBSD without
-# modifications. No guarantees of working on other BSD OSes.
+# modifications. Not tested on other BSD OSes yet.
 PREFIX=@@PREFIX@@
 
-
+# Allow these to be overridden in environment.
 : ${PFTABLES_CONFIG:="/${PREFIX}/etc/pf-tables.conf"}
 : ${PFTABLES_DBDIR:="/var/db/pf-tables"}
 
@@ -21,6 +21,9 @@ RM=/bin/rm
 SED=/usr/bin/sed
 UNAME=/usr/bin/uname
 
+
+# Default mode is to download the tables and store them
+# at $PFTABLES_DBDIR
 COMMAND=fetch
 
 DOWNLOAD=yes
@@ -95,11 +98,14 @@ finish() {
 }
 
 # Download a tablefile from URL and place its contents in TMPFILE.
-# Remove # and ; comments.
+# Remove # ; comments and empty lines.
+
 download_tablefile() {
     URL=$1
     TMPFILE=$2
 
+    # Note: At the time of creating this script OpenBSD did not have
+    # 'sed -i'.
     ${FTP} -v -o - "${URL}" > "${TMPFILE}.orig" || return 1
     ${SED} -e 's/[;#].*$//g' -e '/^\s*$/d' "${TMPFILE}.orig" > "${TMPFILE}" \
         || return 1
@@ -107,6 +113,7 @@ download_tablefile() {
 }
 
 # Load contents of TABLEFILEPATH into PF table TABLE.
+# Note that the tables are assumed to exist in the active ruleset.
 load_tablefile() {
     TABLEFILEPATH=$1
     TABLE=$2
