@@ -22,7 +22,7 @@ SED=/usr/bin/sed
 UNAME=/usr/bin/uname
 
 
-# Default mode is to download the tables and store them
+# Default mode (fetch) is to download the tables and store them
 # at $PFTABLES_DBDIR
 COMMAND=fetch
 
@@ -30,11 +30,72 @@ DOWNLOAD=yes
 STORE=yes
 LOAD=
 
+# Functions
 
 usage() {
     echo "Usage: $0 [-d database_directory] [-f config_file ] [fetch|load|all]"
+    exit 0
+}
+
+
+err_msg() {
+    MSG=$1
+    echo "ERROR: $1"
+}
+
+err_exit() {
+    MSG=$1
+    err_msg "$1"
     exit 1
 }
+
+finish() {
+    # Make sure we are deleting a temporary directory created by this script
+    # and not something else. This script will be run as root, better safe than
+    # sorry.
+    if test -n "${SCRATCH}" \
+        && test -z "${SCRATCH##/tmp/pftables-??????????}" ; then
+         ${RM} -r "${SCRATCH}"
+    fi     
+}
+
+# Download a tablefile from URL and place its contents in TMPFILE.
+# Remove # ; comments and empty lines.
+
+download_tablefile() {
+    URL=$1
+    TMPFILE=$2
+
+    # Note: At the time of creating this script OpenBSD did not have
+    # 'sed -i'.
+    ${FTP} -v -o - "${URL}" > "${TMPFILE}.orig" || return 1
+    ${SED} -e 's/[;#].*$//g' -e '/^\s*$/d' "${TMPFILE}.orig" > "${TMPFILE}" \
+        || return 1
+
+}
+
+# Load contents of TABLEFILEPATH into PF table TABLE.
+# Note that the tables are assumed to exist in the active ruleset.
+load_tablefile() {
+    TABLEFILEPATH=$1
+    TABLE=$2
+    
+    if test ! -r "${TABLEFILEPATH}"; then
+        err_msg "Table file ${TABLEFILEPATH} is not readable."
+        return 1
+    fi
+    
+    if ! ${PFCTL} -T show -t "${TABLE}" >/dev/null 2>&1 ; then
+        err_msg "PF table ${TABLE} not found in the active ruleset".
+        return 1
+    fi
+ 
+    ${PFCTL} -T flush -t "${TABLE}" || return 1
+    ${PFCTL} -T add -t "${TABLE}" -f "${TABLEFILEPATH}" || return 1
+}
+
+# End of functions
+
 
 # TODO: Test on NetBSD and DragonFlyBSD
 OSTYPE=$($UNAME)
@@ -45,8 +106,7 @@ case $OSTYPE in
     OpenBSD)
         ;;
     *)
-        echo "Unsupported operating system"
-        exit 1
+        err_exit "Unsupported operating system"
         ;;
 esac  
 
@@ -73,70 +133,19 @@ case "${COMMAND}" in
     "all" ) DOWNLOAD=yes; STORE=yes; LOAD=yes;;
 esac
 
-
 if test ! -r "${PFTABLES_CONFIG}"; then
-    echo "ERROR: Configuration file ${PFTABLES_CONFIG} is not readable."
-    exit 1
+    err_exit "Configuration file ${PFTABLES_CONFIG} is not readable."
 fi
 
 if test ! -d "${PFTABLES_DBDIR}"; then
-    echo "ERROR: Database directory ${PFTABLES_DBDIR} does not exist."
-    exit 1
+    err_exit "Database directory ${PFTABLES_DBDIR} does not exist."
 fi
-
-
-finish() {
-    # Make sure we are deleting a temporary directory created by this script
-    # and not something else. This script will be run as root, better safe than
-    # sorry.
-    if test -n "${SCRATCH}" \
-        && test -z "${SCRATCH##/tmp/pftables-??????????}" ; then
-         ${RM} -r "${SCRATCH}"
-    else
-        echo "WARNING: Unexpected value for SCRATCH: ${SCRATCH}"
-    fi     
-}
-
-# Download a tablefile from URL and place its contents in TMPFILE.
-# Remove # ; comments and empty lines.
-
-download_tablefile() {
-    URL=$1
-    TMPFILE=$2
-
-    # Note: At the time of creating this script OpenBSD did not have
-    # 'sed -i'.
-    ${FTP} -v -o - "${URL}" > "${TMPFILE}.orig" || return 1
-    ${SED} -e 's/[;#].*$//g' -e '/^\s*$/d' "${TMPFILE}.orig" > "${TMPFILE}" \
-        || return 1
-
-}
-
-# Load contents of TABLEFILEPATH into PF table TABLE.
-# Note that the tables are assumed to exist in the active ruleset.
-load_tablefile() {
-    TABLEFILEPATH=$1
-    TABLE=$2
-    
-    if test ! -r "${TABLEFILEPATH}"; then
-        echo "ERROR: Table file ${TABLEFILEPATH} is not readable."
-        return 1
-    fi
-    
-    if ! ${PFCTL} -T show -t "${TABLE}" >/dev/null 2>&1 ; then
-        echo "ERROR: PF table ${TABLE} not found in the active ruleset".
-        return 1
-    fi
- 
-    ${PFCTL} -T flush -t "${TABLE}" || return 1
-    ${PFCTL} -T add -t "${TABLE}" -f "${TABLEFILEPATH}" || return 1
-}
-
 
 if test "${DOWNLOAD}" = "yes"; then
     # Create the temporary directory
     TEMPLATE="XXXXXXXXXX"
-    SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE})
+    SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE}) \
+         || err_exit "Can not create the temporary directory."
     trap finish EXIT
 
     # Counter to keep track of downloaded tables.
@@ -155,17 +164,14 @@ if test "${DOWNLOAD}" = "yes"; then
         URL=$1
         TABLE=$2
 
-
         if test -z "${URL}" || test -z "${TABLE}"; then
-            echo "ERROR: Malformed line ${line} in config file ${PFTABLES_CONFIG}"
-            exit 1
+            err_exit "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
         fi
 
         TMPFILE="${SCRATCH}/${TABLE}.txt"
 
         if ! download_tablefile "${URL}" "${TMPFILE}" ; then
-            echo "ERROR: Something went wrong downloading ${URL}."
-            exit 1
+            err_exit "Something went wrong downloading ${URL}."
         fi 
 
         downloaded_tables=$(($downloaded_tables + 1 ))
@@ -178,7 +184,8 @@ if test "${DOWNLOAD}" = "yes"; then
     if test "${STORE}" = "yes" && test $downloaded_tables -gt 0; then
         # Copy processed tablefiles (*.txt) from ${SCRATCH} to 
         # ${PFTABLES_DBDIR}
-        ${CP} ${SCRATCH}/*.txt "${PFTABLES_DBDIR}"
+        ${CP} ${SCRATCH}/*.txt "${PFTABLES_DBDIR}" \
+            || err_exit "Error copying table files to ${PFTABLES_DBDIR}"
     fi
 fi
 
@@ -199,15 +206,13 @@ if test "${LOAD}" = "yes"; then
         TABLE=$2
 
         if test -z "${URL}" || test -z "${TABLE}"; then
-            echo "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
-            exit 1
+            err_exit "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
         fi
 
         TABLEFILEPATH="${PFTABLES_DBDIR}/${TABLE}.txt"
 
         if ! load_tablefile "${TABLEFILEPATH}" "${TABLE}" ; then
-            echo "ERROR: Something went wrong loading ${TABLE} to PF."
-            exit 1
+            err_exit "Something went wrong loading ${TABLE}.txt to PF."
         fi 
 
     done <"${PFTABLES_CONFIG}"
