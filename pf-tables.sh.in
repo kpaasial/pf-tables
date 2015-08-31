@@ -3,17 +3,22 @@
 # Script for downloading a set of IP/CIDR tables and loading them
 # to pf(4).
 
-# CAVEATS: This will probably work on FreeBSD and OpenBSD without
+# NOTE: This will work on FreeBSD and OpenBSD without
 # modifications. Not tested on other BSD OSes yet.
+
+
+# @@PREFIX@@ is set by the Makefile and substituted here.
 PREFIX=@@PREFIX@@
 
 # Allow these to be overridden in environment.
-: ${PFTABLES_CONFIG:="/${PREFIX}/etc/pf-tables.conf"}
-: ${PFTABLES_DBDIR:="/var/db/pf-tables"}
+# Command line options override these as well.
+: ${PF_TABLES_CONFIG:="/${PREFIX}/etc/pf-tables.conf"}
+: ${PF_TABLES_DBDIR:="/var/db/pf-tables"}
 
 
 CAT=/bin/cat
 CP=/bin/cp
+ECHO=/bin/echo
 FTP=/usr/bin/ftp
 MKTEMP=/usr/bin/mktemp
 PFCTL=/sbin/pfctl
@@ -23,24 +28,30 @@ UNAME=/usr/bin/uname
 
 
 # Default mode (fetch) is to download the tables and store them
-# at $PFTABLES_DBDIR
+# at $PF_TABLES_DBDIR
 COMMAND=fetch
 
 DOWNLOAD=yes
 STORE=yes
 LOAD=
 
+
+# SCRATCH template
+SCRATCH_TEMPLATE="/tmp/pf-tables-XXXXXXXXXX"
+# Pattern to match $SCRATCH when Xs have been substituted
+# with random characters by mktemp(1).
+SCRATCH_PATTERN=$(${ECHO} "${SCRATCH_TEMPLATE}" | ${SED} -e 's/X/?/g')
+
 # Functions
 
 usage() {
-    echo "Usage: $0 [-d database_directory] [-f config_file ] [fetch|load|all]"
+    ${ECHO} "Usage: $0 [-d database_directory] [-f config_file ] [fetch|load|all]"
     exit 0
 }
 
-
 err_msg() {
     MSG=$1
-    echo "ERROR: $1"
+    ${ECHO} "ERROR: $1"
 }
 
 err_exit() {
@@ -54,7 +65,7 @@ finish() {
     # and not something else. This script will be run as root, better safe than
     # sorry.
     if test -n "${SCRATCH}" \
-        && test -z "${SCRATCH##/tmp/pftables-??????????}" ; then
+        && test -z "${SCRATCH##${SCRATCH_PATTERN}}" ; then
          ${RM} -r "${SCRATCH}"
     fi     
 }
@@ -113,8 +124,8 @@ esac
 while getopts "d:f:h" o
 do
     case "$o" in 
-    d)  PFTABLES_DBDIR=$OPTARG;;  
-    f)  PFTABLES_CONFIG=$OPTARG;;
+    d)  PF_TABLES_DBDIR=$OPTARG;;  
+    f)  PF_TABLES_CONFIG=$OPTARG;;
     h)  usage;;
     *)  usage;;
     esac
@@ -131,20 +142,20 @@ case "${COMMAND}" in
     "fetch" ) DOWNLOAD=yes; STORE=yes; LOAD=;;
     "load" ) DOWNLOAD=; STORE=; LOAD=yes;;
     "all" ) DOWNLOAD=yes; STORE=yes; LOAD=yes;;
+    *) usage;;
 esac
 
-if test ! -r "${PFTABLES_CONFIG}"; then
-    err_exit "Configuration file ${PFTABLES_CONFIG} is not readable."
+if test ! -r "${PF_TABLES_CONFIG}"; then
+    err_exit "Configuration file ${PF_TABLES_CONFIG} is not readable."
 fi
 
-if test ! -d "${PFTABLES_DBDIR}"; then
-    err_exit "Database directory ${PFTABLES_DBDIR} does not exist."
+if test ! -d "${PF_TABLES_DBDIR}"; then
+    err_exit "Database directory ${PF_TABLES_DBDIR} does not exist."
 fi
 
 if test "${DOWNLOAD}" = "yes"; then
     # Create the temporary directory
-    TEMPLATE="XXXXXXXXXX"
-    SCRATCH=$(${MKTEMP} -d /tmp/pftables-${TEMPLATE}) \
+    SCRATCH=$(${MKTEMP} -d ${SCRATCH_TEMPLATE}) \
          || err_exit "Can not create the temporary directory."
     trap finish EXIT
 
@@ -164,8 +175,10 @@ if test "${DOWNLOAD}" = "yes"; then
         URL=$1
         TABLE=$2
 
+        # TODO: Validate URL somehow before trying to use it.
+        # TODO: Validate table name also.
         if test -z "${URL}" || test -z "${TABLE}"; then
-            err_exit "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
+            err_exit "Malformed line ${line} in config file ${PF_TABLES_CONFIG}"
         fi
 
         TMPFILE="${SCRATCH}/${TABLE}.txt"
@@ -176,22 +189,32 @@ if test "${DOWNLOAD}" = "yes"; then
 
         downloaded_tables=$(($downloaded_tables + 1 ))
             
-    done <"${PFTABLES_CONFIG}"
+    done <"${PF_TABLES_CONFIG}"
 
     # The store pass can not be done unless the download pass has
     # finished successfully.
-    
+
     if test "${STORE}" = "yes" && test $downloaded_tables -gt 0; then
+        if ! test -w "${PF_TABLES_DBDIR}"; then
+            err_exit "Database directory ${PF_TABLES_DBDIR} is not writable."
+        fi
+    
         # Copy processed tablefiles (*.txt) from ${SCRATCH} to 
-        # ${PFTABLES_DBDIR}
-        ${CP} ${SCRATCH}/*.txt "${PFTABLES_DBDIR}" \
-            || err_exit "Error copying table files to ${PFTABLES_DBDIR}"
+        # ${PF_TABLES_DBDIR}
+        ${CP} ${SCRATCH}/*.txt "${PF_TABLES_DBDIR}" \
+            || err_exit "Error copying table files to ${PF_TABLES_DBDIR}"
     fi
 fi
 
 if test "${LOAD}" = "yes"; then
-    # Read the config file the second time. Not the most elegant
-    # programming but we need to know which tables are to be loaded.
+
+    if ! test -r "${PF_TABLES_DBDIR}"; then
+        err_exit "Database directory ${PF_TABLES_DBDIR} is not readable."
+    fi
+    
+    # Read the config file the second time (if running in all mode).
+    # Not the most elegant programming but we need to know which
+    # tables are to be loaded.
     while read line
     do  
         line="${line%%#*}"
@@ -206,16 +229,16 @@ if test "${LOAD}" = "yes"; then
         TABLE=$2
 
         if test -z "${URL}" || test -z "${TABLE}"; then
-            err_exit "Malformed line ${line} in config file ${PFTABLES_CONFIG}"
+            err_exit "Malformed line ${line} in config file ${PF_TABLES_CONFIG}"
         fi
 
-        TABLEFILEPATH="${PFTABLES_DBDIR}/${TABLE}.txt"
+        TABLEFILEPATH="${PF_TABLES_DBDIR}/${TABLE}.txt"
 
         if ! load_tablefile "${TABLEFILEPATH}" "${TABLE}" ; then
             err_exit "Something went wrong loading ${TABLE}.txt to PF."
         fi 
 
-    done <"${PFTABLES_CONFIG}"
+    done <"${PF_TABLES_CONFIG}"
 fi
 
 exit 0
