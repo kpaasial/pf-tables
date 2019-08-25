@@ -27,25 +27,24 @@ SED=/usr/bin/sed
 UNAME=/usr/bin/uname
 
 
-# Default mode (fetch) is to download the tables and store them
-# at $PF_TABLES_DBDIR
-COMMAND=fetch
+# Default mode is to do nothing and show the help
 
-DOWNLOAD=yes
-STORE=yes
-LOAD=
+DOWNLOAD=no
+STORE=no
+LOAD=no
 
 
 # SCRATCH template
 SCRATCH_TEMPLATE="/tmp/pf-tables-XXXXXXXXXX"
-# Pattern to match $SCRATCH when Xs have been substituted
-# with random characters by mktemp(1).
+# Pattern to match the $SCRATCH path. Substituting the Xs with ? characters
+# makes the pattern match any string created later with mktemp(1)
+ 
 SCRATCH_PATTERN=$(${ECHO} "${SCRATCH_TEMPLATE}" | ${SED} -e 's/X/?/g')
 
 # Functions
 
 usage() {
-    ${ECHO} "Usage: $0 [-d database_directory] [-f config_file ] [fetch|load|all]"
+    ${ECHO} "Usage: $0 [-d db_dir] [-f config_file ] [fetch|load|all]"
     exit 0
 }
 
