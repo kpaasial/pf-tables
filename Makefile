@@ -3,7 +3,7 @@
 .sh.in.sh:
 	sed -e "s|@@PREFIX@@|${PREFIX}|g" < ${.ALLSRC} > ${.TARGET}
 
-PREFIX?=/usr/local
+PREFIX?=/opt
 
 
 SCRIPTS= pf-tables.sh
@@ -14,10 +14,10 @@ all: ${SCRIPTS}
 install: install-scripts install-etc
 
 install-scripts:	${SCRIPTS}
-	${INSTALL} -m 755 $> ${DESTDIR}/${PREFIX}/sbin 
+	${INSTALL} -m 755 $> ${DESTDIR}${PREFIX}/sbin 
 
 install-etc:	${ETCFILES}
-	${INSTALL} -m 640 $> ${DESTDIR}/${PREFIX}/etc
+	${INSTALL} -m 640 $> ${DESTDIR}${PREFIX}/etc
 
 pf-tables.sh: pf-tables.sh.in
 
